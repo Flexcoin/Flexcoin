@@ -2,553 +2,261 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-DIST_SUBDIRS = secp256k1 univalue
+ACLOCAL_AMFLAGS = -I build-aux/m4
+SUBDIRS = src
+.PHONY: deploy FORCE
 
-AM_LDFLAGS = $(PTHREAD_CFLAGS) $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS) $(GPROF_LDFLAGS) $(SANITIZER_LDFLAGS)
-AM_CXXFLAGS = $(DEBUG_CXXFLAGS) $(HARDENED_CXXFLAGS) $(WARN_CXXFLAGS) $(NOWARN_CXXFLAGS) $(ERROR_CXXFLAGS) $(GPROF_CXXFLAGS) $(SANITIZER_CXXFLAGS)
-AM_CPPFLAGS = $(DEBUG_CPPFLAGS) $(HARDENED_CPPFLAGS)
-AM_LIBTOOLFLAGS = --preserve-dup-deps
-EXTRA_LIBRARIES =
+export PYTHONPATH
 
-if EMBEDDED_UNIVALUE
-LIBUNIVALUE = univalue/libunivalue.la
+if BUILD_BITCOIN_LIBS
+pkgconfigdir = $(libdir)/pkgconfig
+pkgconfig_DATA = libbitcoinconsensus.pc
+endif
 
-$(LIBUNIVALUE): $(wildcard univalue/lib/*) $(wildcard univalue/include/*)
-	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
+BITCOIND_BIN=$(top_builddir)/src/$(BITCOIN_DAEMON_NAME)$(EXEEXT)
+BITCOIN_QT_BIN=$(top_builddir)/src/qt/$(BITCOIN_GUI_NAME)$(EXEEXT)
+BITCOIN_CLI_BIN=$(top_builddir)/src/$(BITCOIN_CLI_NAME)$(EXEEXT)
+BITCOIN_WIN_INSTALLER=$(PACKAGE)-$(PACKAGE_VERSION)-win$(WINDOWS_BITS)-setup$(EXEEXT)
+
+empty :=
+space := $(empty) $(empty)
+
+OSX_APP=infinitemoneycoin-Qt.app
+OSX_VOLNAME = $(subst $(space),-,$(PACKAGE_NAME))
+OSX_DMG = $(OSX_VOLNAME).dmg
+OSX_BACKGROUND_SVG=background.svg
+OSX_BACKGROUND_IMAGE=background.tiff
+OSX_BACKGROUND_IMAGE_DPIS=36 72
+OSX_DSSTORE_GEN=$(top_srcdir)/contrib/macdeploy/custom_dsstore.py
+OSX_DEPLOY_SCRIPT=$(top_srcdir)/contrib/macdeploy/macdeployqtplus
+OSX_FANCY_PLIST=$(top_srcdir)/contrib/macdeploy/fancy.plist
+OSX_INSTALLER_ICONS=$(top_srcdir)/src/qt/res/icons/bitcoin.icns
+OSX_PLIST=$(top_builddir)/share/qt/Info.plist #not installed
+OSX_QT_TRANSLATIONS = da,de,es,hu,ru,uk,zh_CN,zh_TW
+
+DIST_DOCS = $(wildcard doc/*.md) $(wildcard doc/release-notes/*.md)
+DIST_CONTRIB = $(top_srcdir)/contrib/infinitemoneycoin-cli.bash-completion \
+	       $(top_srcdir)/contrib/infinitemoneycoin-tx.bash-completion \
+	       $(top_srcdir)/contrib/infinitemoneycoind.bash-completion \
+           $(top_srcdir)/contrib/init \
+           $(top_srcdir)/contrib/install_db4.sh
+
+DIST_SHARE = \
+           $(top_srcdir)/share/genbuild.sh \
+           $(top_srcdir)/share/rpcauth
+
+BIN_CHECKS=$(top_srcdir)/contrib/devtools/symbol-check.py \
+           $(top_srcdir)/contrib/devtools/security-check.py
+
+WINDOWS_PACKAGING = $(top_srcdir)/share/pixmaps/bitcoin.ico \
+  $(top_srcdir)/share/pixmaps/nsis-header.bmp \
+  $(top_srcdir)/share/pixmaps/nsis-wizard.bmp \
+  $(top_srcdir)/doc/README_windows.txt
+
+OSX_PACKAGING = $(OSX_DEPLOY_SCRIPT) $(OSX_FANCY_PLIST) $(OSX_INSTALLER_ICONS) \
+  $(top_srcdir)/contrib/macdeploy/$(OSX_BACKGROUND_SVG) \
+  $(OSX_DSSTORE_GEN) \
+  $(top_srcdir)/contrib/macdeploy/detached-sig-apply.sh \
+  $(top_srcdir)/contrib/macdeploy/detached-sig-create.sh
+
+COVERAGE_INFO = baseline.info \
+  test_infinitemoneycoin_filtered.info total_coverage.info \
+  baseline_filtered.info functional_test.info functional_test_filtered.info \
+  test_infinitemoneycoin_coverage.info test_infinitemoneycoin.info
+
+dist-hook:
+	-$(GIT) archive --format=tar HEAD -- src/clientversion.cpp | $(AMTAR) -C $(top_distdir) -xf -
+
+$(BITCOIN_WIN_INSTALLER): all-recursive
+	$(MKDIR_P) $(top_builddir)/release
+	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM) $(BITCOIND_BIN) $(top_builddir)/release
+	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM) $(BITCOIN_QT_BIN) $(top_builddir)/release
+	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM) $(BITCOIN_CLI_BIN) $(top_builddir)/release
+	@test -f $(MAKENSIS) && $(MAKENSIS) -V2 $(top_builddir)/share/setup.nsi || \
+	  echo error: could not build $@
+	@echo built $@
+
+$(OSX_APP)/Contents/PkgInfo:
+	$(MKDIR_P) $(@D)
+	@echo "APPL????" > $@
+
+$(OSX_APP)/Contents/Resources/empty.lproj:
+	$(MKDIR_P) $(@D)
+	@touch $@
+
+$(OSX_APP)/Contents/Info.plist: $(OSX_PLIST)
+	$(MKDIR_P) $(@D)
+	$(INSTALL_DATA) $< $@
+
+$(OSX_APP)/Contents/Resources/bitcoin.icns: $(OSX_INSTALLER_ICONS)
+	$(MKDIR_P) $(@D)
+	$(INSTALL_DATA) $< $@
+
+$(OSX_APP)/Contents/MacOS/infinitemoneycoin-Qt: all-recursive
+	$(MKDIR_P) $(@D)
+	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM)  $(BITCOIN_QT_BIN) $@
+
+$(OSX_APP)/Contents/Resources/Base.lproj/InfoPlist.strings:
+	$(MKDIR_P) $(@D)
+	echo '{	CFBundleDisplayName = "$(PACKAGE_NAME)"; CFBundleName = "$(PACKAGE_NAME)"; }' > $@
+
+OSX_APP_BUILT=$(OSX_APP)/Contents/PkgInfo $(OSX_APP)/Contents/Resources/empty.lproj \
+  $(OSX_APP)/Contents/Resources/bitcoin.icns $(OSX_APP)/Contents/Info.plist \
+  $(OSX_APP)/Contents/MacOS/infinitemoneycoin-Qt $(OSX_APP)/Contents/Resources/Base.lproj/InfoPlist.strings
+
+osx_volname:
+	echo $(OSX_VOLNAME) >$@
+
+if BUILD_DARWIN
+$(OSX_DMG): $(OSX_APP_BUILT) $(OSX_PACKAGING) $(OSX_BACKGROUND_IMAGE)
+	$(PYTHON) $(OSX_DEPLOY_SCRIPT) $(OSX_APP) -add-qt-tr $(OSX_QT_TRANSLATIONS) -translations-dir=$(QT_TRANSLATION_DIR) -dmg -fancy $(OSX_FANCY_PLIST) -verbose 2 -volname $(OSX_VOLNAME)
+
+$(OSX_BACKGROUND_IMAGE).png: contrib/macdeploy/$(OSX_BACKGROUND_SVG)
+	sed 's/PACKAGE_NAME/$(PACKAGE_NAME)/' < "$<" | $(RSVG_CONVERT) -f png -d 36 -p 36 -o $@
+$(OSX_BACKGROUND_IMAGE)@2x.png: contrib/macdeploy/$(OSX_BACKGROUND_SVG)
+	sed 's/PACKAGE_NAME/$(PACKAGE_NAME)/' < "$<" | $(RSVG_CONVERT) -f png -d 72 -p 72 -o $@
+$(OSX_BACKGROUND_IMAGE): $(OSX_BACKGROUND_IMAGE).png $(OSX_BACKGROUND_IMAGE)@2x.png
+	tiffutil -cathidpicheck $^ -out $@
+
+deploydir: $(OSX_DMG)
 else
-LIBUNIVALUE = $(UNIVALUE_LIBS)
+APP_DIST_DIR=$(top_builddir)/dist
+APP_DIST_EXTRAS=$(APP_DIST_DIR)/.background/$(OSX_BACKGROUND_IMAGE) $(APP_DIST_DIR)/.DS_Store $(APP_DIST_DIR)/Applications
+
+$(APP_DIST_DIR)/Applications:
+	@rm -f $@
+	@cd $(@D); $(LN_S) /Applications $(@F)
+
+$(APP_DIST_EXTRAS): $(APP_DIST_DIR)/$(OSX_APP)/Contents/MacOS/infinitemoneycoin-Qt
+
+$(OSX_DMG): $(APP_DIST_EXTRAS)
+	$(GENISOIMAGE) -no-cache-inodes -D -l -probe -V "$(OSX_VOLNAME)" -no-pad -r -dir-mode 0755 -apple -o $@ dist
+
+dpi%.$(OSX_BACKGROUND_IMAGE): contrib/macdeploy/$(OSX_BACKGROUND_SVG)
+	sed 's/PACKAGE_NAME/$(PACKAGE_NAME)/' < "$<" | $(RSVG_CONVERT) -f png -d $* -p $* | $(IMAGEMAGICK_CONVERT) - $@
+OSX_BACKGROUND_IMAGE_DPIFILES := $(foreach dpi,$(OSX_BACKGROUND_IMAGE_DPIS),dpi$(dpi).$(OSX_BACKGROUND_IMAGE))
+$(APP_DIST_DIR)/.background/$(OSX_BACKGROUND_IMAGE): $(OSX_BACKGROUND_IMAGE_DPIFILES)
+	$(MKDIR_P) $(@D)
+	$(TIFFCP) -c none $(OSX_BACKGROUND_IMAGE_DPIFILES) $@
+
+$(APP_DIST_DIR)/.DS_Store: $(OSX_DSSTORE_GEN)
+	$(PYTHON) $< "$@" "$(OSX_VOLNAME)"
+
+$(APP_DIST_DIR)/$(OSX_APP)/Contents/MacOS/infinitemoneycoin-Qt: $(OSX_APP_BUILT) $(OSX_PACKAGING)
+	INSTALLNAMETOOL=$(INSTALLNAMETOOL)  OTOOL=$(OTOOL) STRIP=$(STRIP) $(PYTHON) $(OSX_DEPLOY_SCRIPT) $(OSX_APP) -translations-dir=$(QT_TRANSLATION_DIR) -add-qt-tr $(OSX_QT_TRANSLATIONS) -verbose 2
+
+deploydir: $(APP_DIST_EXTRAS)
 endif
 
-BITCOIN_INCLUDES=-I$(builddir) $(BDB_CPPFLAGS) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS) $(SSL_CFLAGS)
-
-BITCOIN_INCLUDES=-I$(builddir) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS) $(SSL_CFLAGS)
-
-BITCOIN_INCLUDES += -I$(srcdir)/secp256k1/include
-BITCOIN_INCLUDES += $(UNIVALUE_CFLAGS)
-
-LIBBITCOIN_SERVER=libbitcoin_server.a
-LIBBITCOIN_COMMON=libbitcoin_common.a
-LIBBITCOIN_CLI=libbitcoin_cli.a
-LIBBITCOIN_UTIL=libbitcoin_util.a
-LIBBITCOIN_CRYPTO=crypto/libbitcoin_crypto.a
-LIBBITCOIN_ZEROCOIN=libzerocoin/libbitcoin_zerocoin.a
-LIBBITCOINQT=qt/libbitcoinqt.a
-LIBSECP256K1=secp256k1/libsecp256k1.la
-
-if ENABLE_ZMQ
-LIBBITCOIN_ZMQ=libbitcoin_zmq.a
+if TARGET_DARWIN
+appbundle: $(OSX_APP_BUILT)
+deploy: $(OSX_DMG)
 endif
-if BUILD_BITCOIN_LIBS
-LIBBITCOINCONSENSUS=libbitcoinconsensus.la
-endif
-if ENABLE_WALLET
-LIBBITCOIN_WALLET=libbitcoin_wallet.a
-endif
-
-$(LIBSECP256K1): $(wildcard secp256k1/src/*.h) $(wildcard secp256k1/src/*.c) $(wildcard secp256k1/include/*)
-	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
-
-# Make is not made aware of per-object dependencies to avoid limiting building parallelization
-# But to build the less dependent modules first, we manually select their order here:
-EXTRA_LIBRARIES += \
-  $(LIBBITCOIN_CRYPTO) \
-  $(LIBBITCOIN_UTIL) \
-  $(LIBBITCOIN_COMMON) \
-  $(LIBBITCOIN_ZEROCOIN) \
-  $(LIBBITCOIN_SERVER) \
-  $(LIBBITCOIN_CLI) \
-  $(LIBBITCOIN_WALLET) \
-  $(LIBBITCOIN_ZMQ)
-
-lib_LTLIBRARIES = $(LIBBITCOINCONSENSUS)
-
-bin_PROGRAMS =
-noinst_PROGRAMS =
-TESTS =
-BENCHMARKS=
-
-if BUILD_BITCOIND
-  bin_PROGRAMS += infinitemoneycoind
-endif
-
-if BUILD_BITCOIN_UTILS
-  bin_PROGRAMS += infinitemoneycoin-cli infinitemoneycoin-tx
-endif
-
-.PHONY: FORCE
-# infinitemoneycoin #
-BITCOIN_CORE_H = \
-  activemasternode.h \
-  accumulators.h \
-  accumulatorcheckpoints.h \
-  accumulatorcheckpoints.json.h \
-  accumulatormap.h \
-  addrman.h \
-  alert.h \
-  allocators.h \
-  amount.h \
-  base58.h \
-  bip38.h \
-  bloom.h \
-  blocksignature.h \
-  chain.h \
-  chainparams.h \
-  chainparamsbase.h \
-  chainparamsseeds.h \
-  checkpoints.h \
-  checkqueue.h \
-  clientversion.h \
-  coincontrol.h \
-  coins.h \
-  compat.h \
-  compat/sanity.h \
-  compressor.h \
-  primitives/block.h \
-  primitives/deterministicmint.h \
-  primitives/transaction.h \
-  primitives/zerocoin.h \
-  core_io.h \
-  crypter.h \
-  denomination_functions.h \
-  obfuscation.h \
-  obfuscation-relay.h \
-  db.h \
-  hash.h \
-  httprpc.h \
-  httpserver.h \
-  init.h \
-  invalid.h \
-  invalid_outpoints.json.h \
-  invalid_serials.json.h \
-  kernel.h \
-  swifttx.h \
-  key.h \
-  keystore.h \
-  leveldbwrapper.h \
-  limitedmap.h \
-  main.h \
-  masternode.h \
-  masternode-payments.h \
-  masternode-budget.h \
-  masternode-sync.h \
-  masternodeman.h \
-  masternodeconfig.h \
-  merkleblock.h \
-  miner.h \
-  mintpool.h \
-  mruset.h \
-  netbase.h \
-  net.h \
-  noui.h \
-  pow.h \
-  protocol.h \
-  pubkey.h \
-  random.h \
-  reverselock.h \
-  reverse_iterate.h \
-  rpcclient.h \
-  rpcprotocol.h \
-  rpcserver.h \
-  scheduler.h \
-  script/interpreter.h \
-  script/script.h \
-  script/sigcache.h \
-  script/sign.h \
-  script/standard.h \
-  script/script_error.h \
-  serialize.h \
-  spork.h \
-  sporkdb.h \
-  stakeinput.h \
-  streams.h \
-  sync.h \
-  threadsafety.h \
-  timedata.h \
-  tinyformat.h \
-  torcontrol.h \
-  txdb.h \
-  txmempool.h \
-  ui_interface.h \
-  uint256.h \
-  undo.h \
-  util.h \
-  utilstrencodings.h \
-  utilmoneystr.h \
-  utiltime.h \
-  validationinterface.h \
-  version.h \
-  wallet.h \
-  wallet_ismine.h \
-  walletdb.h \
-  zecachain.h \
-  zecatracker.h \
-  zecawallet.h \
-  zmq/zmqabstractnotifier.h \
-  zmq/zmqconfig.h \
-  zmq/zmqnotificationinterface.h \
-  zmq/zmqpublishnotifier.h
-
-obj/build.h: FORCE
-	@$(MKDIR_P) $(builddir)/obj
-	@$(top_srcdir)/share/genbuild.sh "$(abs_top_builddir)/src/obj/build.h" \
-	  "$(abs_top_srcdir)"
-libbitcoin_util_a-clientversion.$(OBJEXT): obj/build.h
-
-# server: shared between infinitemoneycoind and infinitemoneycoin-qt
-libbitcoin_server_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(MINIUPNPC_CPPFLAGS) $(EVENT_CFLAGS) $(EVENT_PTHREADS_CFLAGS)
-libbitcoin_server_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libbitcoin_server_a_SOURCES = \
-  addrman.cpp \
-  alert.cpp \
-  bloom.cpp \
-  blocksignature.cpp \
-  chain.cpp \
-  checkpoints.cpp \
-  httprpc.cpp \
-  httpserver.cpp \
-  init.cpp \
-  leveldbwrapper.cpp \
-  main.cpp \
-  merkleblock.cpp \
-  miner.cpp \
-  net.cpp \
-  noui.cpp \
-  pow.cpp \
-  rest.cpp \
-  rpcblockchain.cpp \
-  rpcmasternode.cpp \
-  rpcmasternode-budget.cpp \
-  rpcmining.cpp \
-  rpcmisc.cpp \
-  rpcnet.cpp \
-  rpcrawtransaction.cpp \
-  rpcserver.cpp \
-  script/sigcache.cpp \
-  sporkdb.cpp \
-  timedata.cpp \
-  torcontrol.cpp \
-  txdb.cpp \
-  txmempool.cpp \
-  validationinterface.cpp \
-  zecachain.cpp \
-  $(BITCOIN_CORE_H)
-
-if ENABLE_ZMQ
-libbitcoin_zmq_a_CPPFLAGS = $(BITCOIN_INCLUDES) $(ZMQ_CFLAGS)
-libbitcoin_zmq_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libbitcoin_zmq_a_SOURCES = \
-  zmq/zmqabstractnotifier.cpp \
-  zmq/zmqnotificationinterface.cpp \
-  zmq/zmqpublishnotifier.cpp
-endif
-
-# wallet: shared between infinitemoneycoind and infinitemoneycoin-qt, but only linked
-# when wallet enabled
-libbitcoin_wallet_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-libbitcoin_wallet_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libbitcoin_wallet_a_SOURCES = \
-  activemasternode.cpp \
-  bip38.cpp \
-  denomination_functions.cpp \
-  obfuscation.cpp \
-  obfuscation-relay.cpp \
-  db.cpp \
-  crypter.cpp \
-  crypto/scrypt.cpp \
-  swifttx.cpp \
-  masternode.cpp \
-  masternode-budget.cpp \
-  masternode-payments.cpp \
-  masternode-sync.cpp \
-  masternodeconfig.cpp \
-  masternodeman.cpp \
-  mintpool.cpp \
-  rpcdump.cpp \
-  primitives/deterministicmint.cpp \
-  primitives/zerocoin.cpp \
-  rpcwallet.cpp \
-  kernel.cpp \
-  wallet.cpp \
-  wallet_ismine.cpp \
-  walletdb.cpp \
-  zecawallet.cpp \
-  zecatracker.cpp \
-  stakeinput.cpp \
-  $(BITCOIN_CORE_H)
-
-# crypto primitives library
-crypto_libbitcoin_crypto_a_CPPFLAGS = $(AM_CPPFLAGS) $(PIC_FLAGS)
-crypto_libbitcoin_crypto_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIC_FLAGS)
-crypto_libbitcoin_crypto_a_SOURCES = \
-  crypto/sha1.cpp \
-  crypto/sha256.cpp \
-  crypto/sha512.cpp \
-  crypto/hmac_sha256.cpp \
-  crypto/rfc6979_hmac_sha256.cpp \
-  crypto/hmac_sha512.cpp \
-  crypto/scrypt.cpp \
-  crypto/ripemd160.cpp \
-  crypto/aes_helper.c \
-  crypto/blake.c \
-  crypto/bmw.c \
-  crypto/groestl.c \
-  crypto/jh.c \
-  crypto/keccak.c \
-  crypto/skein.c \
-  crypto/common.h \
-  crypto/sha256.h \
-  crypto/sha512.h \
-  crypto/hmac_sha256.h \
-  crypto/rfc6979_hmac_sha256.h \
-  crypto/hmac_sha512.h \
-  crypto/scrypt.h \
-  crypto/sha1.h \
-  crypto/ripemd160.h \
-  crypto/sph_blake.h \
-  crypto/sph_bmw.h \
-  crypto/sph_groestl.h \
-  crypto/sph_jh.h \
-  crypto/sph_keccak.h \
-  crypto/sph_skein.h \
-  crypto/sph_types.h
-
-# libzerocoin library
-libzerocoin_libbitcoin_zerocoin_a_CPPFLAGS = $(AM_CPPFLAGS) $(BOOST_CPPFLAGS)
-libzerocoin_libbitcoin_zerocoin_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libzerocoin_libbitcoin_zerocoin_a_SOURCES = \
-  libzerocoin/Accumulator.h \
-  libzerocoin/AccumulatorProofOfKnowledge.h \
-  libzerocoin/bignum.h \
-  libzerocoin/Coin.h \
-  libzerocoin/CoinSpend.h \
-  libzerocoin/Commitment.h \
-  libzerocoin/Denominations.h \
-  libzerocoin/ParamGeneration.h \
-  libzerocoin/Params.h \
-  libzerocoin/SerialNumberSignatureOfKnowledge.h \
-  libzerocoin/SpendType.h \
-  libzerocoin/ZerocoinDefines.h \
-  libzerocoin/Accumulator.cpp \
-  libzerocoin/AccumulatorProofOfKnowledge.cpp \
-  libzerocoin/Coin.cpp \
-  libzerocoin/Denominations.cpp \
-  libzerocoin/CoinSpend.cpp \
-  libzerocoin/Commitment.cpp \
-  libzerocoin/ParamGeneration.cpp \
-  libzerocoin/Params.cpp \
-  libzerocoin/SerialNumberSignatureOfKnowledge.cpp
-
-# common: shared between infinitemoneycoind, and infinitemoneycoin-qt and non-server tools
-libbitcoin_common_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-libbitcoin_common_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libbitcoin_common_a_SOURCES = \
-  accumulators.cpp \
-  accumulatorcheckpoints.cpp \
-  accumulatormap.cpp \
-  allocators.cpp \
-  amount.cpp \
-  base58.cpp \
-  bip38.cpp \
-  chainparams.cpp \
-  coins.cpp \
-  compressor.cpp \
-  primitives/block.cpp \
-  primitives/deterministicmint.cpp \
-  primitives/transaction.cpp \
-  primitives/zerocoin.cpp \
-  core_read.cpp \
-  core_write.cpp \
-  hash.cpp \
-  invalid.cpp \
-  key.cpp \
-  keystore.cpp \
-  netbase.cpp \
-  protocol.cpp \
-  pubkey.cpp \
-  scheduler.cpp \
-  script/interpreter.cpp \
-  script/script.cpp \
-  script/sign.cpp \
-  script/standard.cpp \
-  script/script_error.cpp \
-  spork.cpp \
-  sporkdb.cpp \
-  $(BITCOIN_CORE_H)
-
-# util: shared between all executables.
-# This library *must* be included to make sure that the glibc
-# backward-compatibility objects and their sanity checks are linked.
-libbitcoin_util_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-libbitcoin_util_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libbitcoin_util_a_SOURCES = \
-  allocators.cpp \
-  compat/strnlen.cpp \
-  compat/glibc_sanity.cpp \
-  compat/glibcxx_sanity.cpp \
-  chainparamsbase.cpp \
-  clientversion.cpp \
-  random.cpp \
-  rpcprotocol.cpp \
-  sync.cpp \
-  uint256.cpp \
-  util.cpp \
-  utilstrencodings.cpp \
-  utilmoneystr.cpp \
-  utiltime.cpp \
-  $(BITCOIN_CORE_H)
-
-if GLIBC_BACK_COMPAT
-libbitcoin_util_a_SOURCES += compat/glibc_compat.cpp
-endif
-
-# cli: shared between infinitemoneycoin-cli and infinitemoneycoin-qt
-libbitcoin_cli_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-libbitcoin_cli_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libbitcoin_cli_a_SOURCES = \
-  rpcclient.cpp \
-  $(BITCOIN_CORE_H)
-
-nodist_libbitcoin_util_a_SOURCES = $(srcdir)/obj/build.h
-#
-
-# infinitemoneycoind binary #
-infinitemoneycoind_SOURCES = infinitemoneycoind.cpp
-infinitemoneycoind_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-infinitemoneycoind_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-infinitemoneycoind_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
-
 if TARGET_WINDOWS
-infinitemoneycoind_SOURCES += infinitemoneycoind-res.rc
-endif
-infinitemoneycoind_LDADD = \
-  $(LIBBITCOIN_SERVER) \
-  $(LIBBITCOIN_COMMON) \
-  $(LIBUNIVALUE) \
-  $(LIBBITCOIN_ZEROCOIN) \
-  $(LIBBITCOIN_UTIL) \
-  $(LIBBITCOIN_WALLET) \
-  $(LIBBITCOIN_ZMQ) \
-  $(LIBBITCOIN_CRYPTO) \
-  $(LIBLEVELDB) \
-  $(LIBMEMENV) \
-  $(LIBSECP256K1)
-
-infinitemoneycoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
-
-# infinitemoneycoin-cli binary #
-infinitemoneycoin_cli_SOURCES = infinitemoneycoin-cli.cpp
-infinitemoneycoin_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
-infinitemoneycoin_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-infinitemoneycoin_cli_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
-
-if TARGET_WINDOWS
-infinitemoneycoin_cli_SOURCES += infinitemoneycoin-cli-res.rc
+deploy: $(BITCOIN_WIN_INSTALLER)
 endif
 
-infinitemoneycoin_cli_LDADD = \
-  $(LIBBITCOIN_CLI) \
-  $(LIBUNIVALUE) \
-  $(LIBBITCOIN_UTIL) \
-  $(LIBBITCOIN_CRYPTO)
+$(BITCOIN_QT_BIN): FORCE
+	$(MAKE) -C src qt/$(@F)
 
-infinitemoneycoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
-#
+$(BITCOIND_BIN): FORCE
+	$(MAKE) -C src $(@F)
 
-# infinitemoneycoin-tx binary #
-infinitemoneycoin_tx_SOURCES = infinitemoneycoin-tx.cpp
-infinitemoneycoin_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-infinitemoneycoin_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-infinitemoneycoin_tx_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+$(BITCOIN_CLI_BIN): FORCE
+	$(MAKE) -C src $(@F)
 
-if TARGET_WINDOWS
-infinitemoneycoin_tx_SOURCES += infinitemoneycoin-tx-res.rc
+if USE_LCOV
+LCOV_FILTER_PATTERN=-p "/usr/include/" -p "src/leveldb/" -p "src/univalue" -p "src/secp256k1"
+
+baseline.info:
+	$(LCOV) -c -i -d $(abs_builddir)/src -o $@
+
+baseline_filtered.info: baseline.info
+	$(abs_builddir)/contrib/filter-lcov.py $(LCOV_FILTER_PATTERN) $< $@
+	$(LCOV) -a $@ $(LCOV_OPTS) -o $@
+
+test_infinitemoneycoin.info: baseline_filtered.info
+	$(MAKE) -C src/ check
+	$(LCOV) -c $(LCOV_OPTS) -d $(abs_builddir)/src -t test_infinitemoneycoin -o $@
+	$(LCOV) -z $(LCOV_OPTS) -d $(abs_builddir)/src
+
+test_infinitemoneycoin_filtered.info: test_infinitemoneycoin.info
+	$(abs_builddir)/contrib/filter-lcov.py $(LCOV_FILTER_PATTERN) $< $@
+	$(LCOV) -a $@ $(LCOV_OPTS) -o $@
+
+functional_test.info: test_infinitemoneycoin_filtered.info
+	-@TIMEOUT=15 test/functional/test_runner.py $(EXTENDED_FUNCTIONAL_TESTS)	
+	$(LCOV) -c $(LCOV_OPTS) -d $(abs_builddir)/src --t functional-tests -o $@
+	$(LCOV) -z $(LCOV_OPTS) -d $(abs_builddir)/src
+
+functional_test_filtered.info: functional_test.info
+	$(abs_builddir)/contrib/filter-lcov.py $(LCOV_FILTER_PATTERN) $< $@
+	$(LCOV) -a $@ $(LCOV_OPTS) -o $@
+
+test_infinitemoneycoin_coverage.info: baseline_filtered.info test_infinitemoneycoin_filtered.info
+	$(LCOV) -a $(LCOV_OPTS) baseline_filtered.info -a test_infinitemoneycoin_filtered.info -o $@
+
+total_coverage.info: test_infinitemoneycoin_filtered.info functional_test_filtered.info
+	$(LCOV) -a $(LCOV_OPTS) baseline_filtered.info -a test_infinitemoneycoin_filtered.info -a functional_test_filtered.info -o $@ | $(GREP) "\%" | $(AWK) '{ print substr($$3,2,50) "/" $$5 }' > coverage_percent.txt
+
+test_infinitemoneycoin.coverage/.dirstamp:  test_infinitemoneycoin_coverage.info
+	$(GENHTML) -s $(LCOV_OPTS) $< -o $(@D)
+	@touch $@
+
+total.coverage/.dirstamp: total_coverage.info
+	$(GENHTML) -s $(LCOV_OPTS) $< -o $(@D)
+	@touch $@
+
+cov: test_infinitemoneycoin.coverage/.dirstamp total.coverage/.dirstamp
+
 endif
 
-infinitemoneycoin_tx_LDADD = \
-  $(LIBUNIVALUE) \
-  $(LIBBITCOIN_COMMON) \
-  $(LIBBITCOIN_ZEROCOIN) \
-  $(LIBBITCOIN_UTIL) \
-  $(LIBBITCOIN_CRYPTO) \
-  $(LIBSECP256K1)
+dist_noinst_SCRIPTS = autogen.sh
 
-infinitemoneycoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
-#
+EXTRA_DIST = $(DIST_SHARE) qa/pull-tester/rpc-tests.sh qa/pull-tester/run-bitcoin-cli qa/rpc-tests $(DIST_CONTRIB) $(DIST_DOCS) $(WINDOWS_PACKAGING) $(OSX_PACKAGING) $(BIN_CHECKS)
 
-# bitcoinconsensus library #
-if BUILD_BITCOIN_LIBS
-include_HEADERS = script/bitcoinconsensus.h
-libbitcoinconsensus_la_SOURCES = \
-  allocators.cpp \
-  primitives/transaction.cpp \
-  crypto/hmac_sha512.cpp \
-  crypto/scrypt.cpp \
-  crypto/sha1.cpp \
-  crypto/sha256.cpp \
-  crypto/sha512.cpp \
-  crypto/ripemd160.cpp \
-  hash.cpp \
-  pubkey.cpp \
-  script/script.cpp \
-  script/interpreter.cpp \
-  script/bitcoinconsensus.cpp \
-  uint256.cpp \
-  utilstrencodings.cpp
+EXTRA_DIST += \
+    test/util/bitcoin-util-test.py \
+    test/util/data/bitcoin-util-test.json \
+    test/util/data/blanktxv1.hex \
+    test/util/data/blanktxv1.json \
+    test/util/data/tt-delin1-out.hex \
+    test/util/data/tt-delin1-out.json \
+    test/util/data/tt-delout1-out.hex \
+    test/util/data/tt-delout1-out.json \
+    test/util/data/tt-locktime317000-out.hex \
+    test/util/data/tt-locktime317000-out.json \
+    test/util/data/tx394b54bb.hex \
+    test/util/data/txcreate1.hex \
+    test/util/data/txcreate1.json \
+    test/util/data/txcreate2.hex \
+    test/util/data/txcreate2.json \
+    test/util/data/txcreatescript1.hex \
+    test/util/data/txcreatescript1.json \
+    test/util/data/txcreatesign.hex \
+    test/util/data/txcreatesign.json \
+    test/util/rpcauth-test.py
 
-if GLIBC_BACK_COMPAT
-  libbitcoinconsensus_la_SOURCES += compat/glibc_compat.cpp
+CLEANFILES = $(OSX_DMG) $(BITCOIN_WIN_INSTALLER)
+
+.INTERMEDIATE: $(COVERAGE_INFO)
+
+DISTCHECK_CONFIGURE_FLAGS = --enable-man
+
+doc/doxygen/.stamp: doc/Doxyfile FORCE
+	$(MKDIR_P) $(@D)
+	$(DOXYGEN) $^
+	$(AM_V_at) touch $@
+
+if HAVE_DOXYGEN
+docs: doc/doxygen/.stamp
+else
+docs:
+	@echo "error: doxygen not found"
 endif
 
-libbitcoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
-libbitcoinconsensus_la_LIBADD = $(LIBSECP256K1)
-libbitcoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj -I$(srcdir)/secp256k1/include -DBUILD_BITCOIN_INTERNAL
-libbitcoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-endif
-#
+clean-docs:
+	rm -rf doc/doxygen
 
-CLEANFILES = $(EXTRA_LIBRARIES)
-CLEANFILES += *.gcda *.gcno
-CLEANFILES += compat/*.gcda compat/*.gcno
-CLEANFILES += crypto/*.gcda crypto/*.gcno
-CLEANFILES += primitives/*.gcda primitives/*.gcno
-CLEANFILES += script/*.gcda script/*.gcno
-CLEANFILES += univalue/*.gcda univalue/*.gcno
-CLEANFILES += zmq/*.gcda zmq/*.gcno
-CLEANFILES += obj/build.h
-
-
-EXTRA_DIST =
-
-clean-local:
-	-$(MAKE) -C leveldb clean
-	-$(MAKE) -C secp256k1 clean
-	-$(MAKE) -C univalue clean
-	-rm -f leveldb/*/*.gcda leveldb/*/*.gcno leveldb/helpers/memenv/*.gcda leveldb/helpers/memenv/*.gcno
-	-rm -f config.h
-	-rm -rf test/__pycache__
-
-.rc.o:
-	@test -f $(WINDRES)
-	## FIXME: How to get the appropriate modulename_CPPFLAGS in here?
-	$(AM_V_GEN) $(WINDRES) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(CPPFLAGS) -DWINDRES_PREPROC -i $< -o $@
-
-
-%.pb.cc %.pb.h: %.proto
-	@test -f $(PROTOC)
-	$(AM_V_GEN) $(PROTOC) --cpp_out=$(@D) --proto_path=$(<D) $<
-
-if EMBEDDED_LEVELDB
-include Makefile.leveldb.include
-endif
-
-if ENABLE_TESTS
-include Makefile.test.include
-endif
-
-if ENABLE_QT
-include Makefile.qt.include
-endif
-
-if ENABLE_QT_TESTS
-include Makefile.qttest.include
-endif
+clean-local: clean-docs
+	rm -rf coverage_percent.txt test_pivx.coverage/ total.coverage/ test/tmp/ cache/ $(OSX_APP)
