@@ -1,0 +1,26 @@
+[Unit]
+Description=infinitemoneycoin's distributed currency daemon
+After=network.target
+
+[Service]
+User=infinitemoneycoin
+Group=infinitemoneycoin
+
+Type=forking
+PIDFile=/var/lib/infinitemoneycoind/infinitemoneycoind.pid
+
+ExecStart=/usr/bin/infinitemoneycoind -daemon -pid=/var/lib/infinitemoneycoind/infinitemoneycoind.pid \
+          -conf=/etc/infinitemoneycoin/infinitemoneycoin.conf -datadir=/var/lib/infinitemoneycoind
+
+ExecStop=-/usr/bin/infinitemoneycoin-cli -conf=/etc/infinitemoneycoin/infinitemoneycoin.conf \
+         -datadir=/var/lib/infinitemoneycoind stop
+
+Restart=always
+PrivateTmp=true
+TimeoutStopSec=60s
+TimeoutStartSec=2s
+StartLimitInterval=120s
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

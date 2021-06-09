@@ -1,0 +1,26 @@
+# /etc/conf.d/infinitemoneycoind: config file for /etc/init.d/infinitemoneycoind
+
+# Config file location
+#BITCOIND_CONFIGFILE="/etc/infinitemoneycoin/infinitemoneycoin.conf"
+
+# What directory to write pidfile to?  (created and owned by $BITCOIND_USER)
+#BITCOIND_PIDDIR="/var/run/infinitemoneycoind"
+
+# What filename to give the pidfile
+#BITCOIND_PIDFILE="${BITCOIND_PIDDIR}/infinitemoneycoind.pid"
+
+# Where to write infinitemoneycoind data (be mindful that the blockchain is large)
+#BITCOIND_DATADIR="/var/lib/infinitemoneycoind"
+
+# User and group to own infinitemoneycoind process
+#BITCOIND_USER="infinitemoneycoin"
+#BITCOIND_GROUP="infinitemoneycoin"
+
+# Path to infinitemoneycoind executable
+#BITCOIND_BIN="/usr/bin/infinitemoneycoind"
+
+# Nice value to run infinitemoneycoind under
+#BITCOIND_NICE=0
+
+# Additional options (avoid -conf and -datadir, use flags above)
+BITCOIND_OPTS=""

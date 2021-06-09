@@ -1,0 +1,12 @@
+[Desktop Entry]
+Encoding=UTF-8
+Name=infinitemoneycoin
+Comment=infinitemoneycoin P2P Cryptocurrency
+Comment[fr]=infinitemoneycoin, monnaie virtuelle cryptographique pair à pair
+Comment[tr]=infinitemoneycoin, eşten eşe kriptografik sanal para birimi
+Exec=infinitemoneycoin-qt %u
+Terminal=false
+Type=Application
+Icon=bitcoin128
+MimeType=x-scheme-handler/infinitemoneycoin;
+Categories=Office;Finance;
